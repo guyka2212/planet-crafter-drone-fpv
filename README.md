@@ -5,22 +5,43 @@ Your astronaut stays where you left them, still breathing, so keep an eye on the
 
 ![drone](assets/drone_preview.png)
 
-## Controls
+## Flight modes
+- **ACRO (default)**: real freestyle flying. The sticks set rotation *rates*, throttle pushes along the drone's own
+  up axis, gravity always pulls, and nothing levels the drone for you. Flips, rolls, power loops and dives all work.
+  The FPV camera is hard-mounted with a 25° uptilt.
+- **ANGLE**: self-levelling, easy mode. The drone holds its position when you let go.
+
+Switch with **K** (or D-pad ←). When you go back to your body, a parked drone always levels out and hovers.
+
+## Controls: ACRO
+
+| Action | Keyboard | Controller |
+|---|---|---|
+| Throttle | **W / S** move a throttle lever that stays where you leave it | **RT** (or left stick in Mode 2, see config) |
+| Punch 100% / motor cut | **Space** / **Left Ctrl** | **RB** / **LB** |
+| Yaw | **A / D** | left stick X |
+| Pitch (nose down / up) | **↑ / ↓** | right stick Y |
+| Roll | **← / →** | right stick X |
+| Full stick rate (flips) | hold **Shift** (keys push 45% otherwise) | |
+| Camera uptilt | **PgUp / PgDn** (5° steps) | |
+
+Hover is at about 40% throttle (the HUD shows THR %).
+
+## Controls: ANGLE and general
 
 | Action | Keyboard | Controller |
 |---|---|---|
 | Launch drone / back to body / re-enter drone | **V** | **L3 + R3** (both sticks pressed) |
-| Move forward / back / strafe | **W S A D** | left stick |
-| Up / down | **↑ / ↓** or **Space / Left Ctrl** | **RT / LT** (or RB / LB) |
-| Turn | **← / →** or mouse | right stick X |
-| Camera tilt | **PgUp / PgDn** or mouse Y | right stick Y |
-| Boost | **Left Shift** | **A** |
-| Speed mode (CINE / NORMAL / SPORT) | **N** | D-pad → / ← |
+| Move forward / back / strafe (ANGLE) | **W S A D** | left stick |
+| Up / down (ANGLE) | **↑ / ↓** or **Space / Left Ctrl** | **RT / LT** |
+| Turn (ANGLE) | **← / →** or mouse | right stick X |
+| Boost / speed mode (ANGLE) | **Left Shift** / **N** | **A** / D-pad → |
+| ACRO ↔ ANGLE | **K** | D-pad ← |
 | FPV / chase camera | **B** | D-pad ↑ |
 | Recall drone | **X** | D-pad ↓ |
 | Show / hide help | **H** | |
 
-All keys, range, battery time, mouse sensitivity and FOV can be changed in
+All keys, rates (670°/s), expo, thrust-to-weight (4.5 g), drag, uptilt, range, battery time, mouse sensitivity and FOV can be changed in
 `BepInEx/config/guy.planetcrafter.dronefpv.cfg` (created after the first launch).
 
 ## The drone HUD

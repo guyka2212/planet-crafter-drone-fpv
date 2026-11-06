@@ -21,9 +21,10 @@ namespace DroneFPV
     {
         internal static ManualLogSource Log;
         internal static string Folder;
-        internal static ConfigEntry<Key> KeyToggle, KeyRecall, KeyCamera, KeySpeed, KeyHelp;
+        internal static ConfigEntry<Key> KeyToggle, KeyRecall, KeyCamera, KeySpeed, KeyHelp, KeyMode;
         internal static ConfigEntry<float> MaxRange, BatteryMinutes, MouseSensitivity, Fov;
-        internal static ConfigEntry<bool> DebugLog;
+        internal static ConfigEntry<bool> DebugLog, StartInAcro, GamepadStickThrottle;
+        internal static ConfigEntry<float> KeyboardRateScale, AcroRate, AcroExpo, MaxThrustG, CameraUptilt, AirDrag;
 
         void Awake()
         {
@@ -34,6 +35,15 @@ namespace DroneFPV
             KeyCamera = Config.Bind("Keys", "CameraMode", Key.B, "Switch FPV / chase camera while flying.");
             KeySpeed = Config.Bind("Keys", "SpeedMode", Key.N, "Cycle speed mode (CINE / NORMAL / SPORT).");
             KeyHelp = Config.Bind("Keys", "ToggleHelp", Key.H, "Show or hide the control hints.");
+            KeyMode = Config.Bind("Keys", "FlightMode", Key.K, "Switch ACRO (freestyle) / ANGLE (self-levelling) flight mode.");
+            StartInAcro = Config.Bind("Acro", "StartInAcro", true, "Launch the drone in ACRO mode.");
+            AcroRate = Config.Bind("Acro", "MaxRateDegPerSec", 670f, "Roll/pitch rate at full stick (yaw is 70% of this).");
+            KeyboardRateScale = Config.Bind("Acro", "KeyboardRateScale", 0.45f, "How hard an arrow/A/D key pushes the stick (hold Shift for 100%).");
+            AcroExpo = Config.Bind("Acro", "Expo", 0.45f, "0 = linear sticks, 1 = very soft around centre.");
+            MaxThrustG = Config.Bind("Acro", "ThrustToWeight", 4.5f, "Full-throttle thrust in g. Hover throttle follows from it (~35% at 4.5).");
+            CameraUptilt = Config.Bind("Acro", "CameraUptiltDeg", 25f, "FPV camera uptilt in ACRO. PgUp/PgDn change it in flight.");
+            AirDrag = Config.Bind("Acro", "AirDrag", 0.035f, "Quadratic drag; lower = faster top speed.");
+            GamepadStickThrottle = Config.Bind("Acro", "GamepadThrottleOnLeftStick", false, "true: Mode 2 left-stick throttle (centre = 50%). false: RT is throttle.");
             MaxRange = Config.Bind("Drone", "MaxRangeMeters", 400f, "How far the drone can fly from you.");
             BatteryMinutes = Config.Bind("Drone", "BatteryMinutes", 8f, "Flight time on a full battery at normal speed.");
             MouseSensitivity = Config.Bind("Drone", "MouseSensitivity", 0.12f, "Mouse yaw / camera tilt sensitivity.");
@@ -77,8 +87,8 @@ namespace DroneFPV
         static readonly float[] SpeedValues = { 5f, 13f, 26f };
         float propSpin;
         bool comboLatch;
-        Vector3 lastVel;
 
+        public Camera RenderCam { get { return camComp; } }
         public Vector3 Velocity { get { return rb != null ? rb.linearVelocity : Vector3.zero; } }
         public Transform DroneTransform { get { return drone != null ? drone.transform : null; } }
         public Transform BodyTransform { get { return body; } }
@@ -147,8 +157,10 @@ namespace DroneFPV
                 if (gp != null && gp.dpad.up.wasPressedThisFrame) SetChase(!chaseCam);
                 if ((kb != null && kb[Plugin.KeySpeed.Value].wasPressedThisFrame) || (gp != null && gp.dpad.right.wasPressedThisFrame))
                     speedMode = (speedMode + 1) % 3;
-                if (gp != null && gp.dpad.left.wasPressedThisFrame) speedMode = (speedMode + 2) % 3;
+                if ((kb != null && kb[Plugin.KeyMode.Value].wasPressedThisFrame) || (gp != null && gp.dpad.left.wasPressedThisFrame)) SetAcro(!acro);
                 if (kb != null && kb[Plugin.KeyHelp.Value].wasPressedThisFrame && hud != null) hud.ToggleHelp();
+                if (acro && kb != null && kb.pageUpKey.wasPressedThisFrame) Plugin.CameraUptilt.Value = Mathf.Min(60, Plugin.CameraUptilt.Value + 5);
+                if (acro && kb != null && kb.pageDownKey.wasPressedThisFrame) Plugin.CameraUptilt.Value = Mathf.Max(-10, Plugin.CameraUptilt.Value - 5);
                 flightTime += Time.deltaTime;
             }
 
@@ -239,6 +251,10 @@ namespace DroneFPV
                 spawn = cam.position + fwd * Mathf.Max(0.3f, wall.distance - 0.1f);
             BuildDrone(spawn, Quaternion.Euler(0, yaw, 0));
             camTilt = 0;
+            acro = Plugin.StartInAcro.Value;
+            throttle = HoverThrottle;
+            angVel = Vector3.zero;
+            stick = Vector3.zero;
             flightTime = 0;
             EnterDrone();
             Plugin.Log.LogInfo("Drone launched. cam=" + PathOf(cam) + " camPos=" + cam.position + " oldParent=" + PathOf(camOldParent)
@@ -330,8 +346,9 @@ namespace DroneFPV
             chaseCam = chase;
             if (cam == null || state == DroneState.Off) return;
             if (cam.parent != camMount) return;
-            cam.localPosition = chase ? new Vector3(0, 0.55f, -2.2f) : new Vector3(0, 0.0f, -0.03f);
+            cam.localPosition = new Vector3(0, 0.0f, -0.03f);
             cam.localRotation = Quaternion.identity;
+            chaseInit = false;
             if (body != null) SetLayerVisible(!chase ? false : true);
         }
 
@@ -347,10 +364,155 @@ namespace DroneFPV
         }
 
         // ---------- flight ----------
+        // ACRO (default): sticks command rotation rates, throttle pushes along the drone's up axis,
+        // gravity always pulls, nothing self-levels - like a real freestyle quad.
+        // ANGLE: the old self-levelling, position-hold mode. A parked drone always uses ANGLE to hover.
+
+        public bool acro = true;
+        public float throttle;          // 0..1
+        Vector3 angVel;                 // deg/s, local (pitch, yaw, roll)
+        Vector3 stick;                  // smoothed keyboard sticks: x roll, y pitch, z yaw
+        bool wasAcroFlight;
+        const float G = 9.81f;
+
+        public float MaxAccel { get { return Plugin.MaxThrustG.Value * G; } }
+        public static float ThrustCurve(float t) { return 0.25f * t + 0.75f * t * t; }
+        public float HoverThrottle
+        {
+            get
+            {
+                // solve 0.25t + 0.75t^2 = g / maxAccel
+                float k = G / Mathf.Max(MaxAccel, G * 1.1f);
+                return (-0.25f + Mathf.Sqrt(0.0625f + 3f * k)) / 1.5f;
+            }
+        }
+
+        static float Rate(float x, float maxRate, float expo)
+        {
+            return maxRate * (x * (1f - expo) + x * x * x * expo);
+        }
+
+        public void SetAcro(bool on)
+        {
+            if (drone == null) { acro = on; return; }
+            if (on && !acro)
+            {
+                throttle = HoverThrottle;
+                angVel = Vector3.zero;
+            }
+            if (!on && acro)
+            {
+                yaw = Heading;
+                camTilt = 0;
+            }
+            acro = on;
+            if (hud != null) hud.ShowHelpFor(6f);
+            Plugin.Log.LogInfo("Flight mode: " + (on ? "ACRO" : "ANGLE"));
+        }
+
+        public float Heading
+        {
+            get
+            {
+                if (drone == null) return yaw;
+                Vector3 f = drone.transform.forward;
+                Vector3 flat = Vector3.ProjectOnPlane(f, Vector3.up);
+                if (flat.sqrMagnitude < 0.001f) flat = Vector3.ProjectOnPlane(drone.transform.up * -Mathf.Sign(f.y), Vector3.up);
+                return Quaternion.LookRotation(flat.normalized).eulerAngles.y;
+            }
+        }
 
         void FixedUpdate()
         {
             if (drone == null || rb == null) return;
+            bool acroFlight = acro && state == DroneState.Flying;
+            if (wasAcroFlight && !acroFlight) yaw = Heading; // hand over to the levelling hover
+            if (!wasAcroFlight && acroFlight && throttle <= 0f) throttle = HoverThrottle;
+            wasAcroFlight = acroFlight;
+            if (acroFlight) FixedAcro(); else FixedAngle();
+        }
+
+        void FixedAcro()
+        {
+            float dt = Time.fixedDeltaTime;
+            var kb = Keyboard.current;
+            var gp = Gamepad.current;
+
+            // keyboard "sticks", smoothed so taps feel analog
+            Vector3 kbStick = Vector3.zero;
+            bool punch = false, cut = false;
+            if (kb != null)
+            {
+                if (kb.rightArrowKey.isPressed) kbStick.x += 1;
+                if (kb.leftArrowKey.isPressed) kbStick.x -= 1;
+                if (kb.upArrowKey.isPressed) kbStick.y += 1;    // nose down (forward)
+                if (kb.downArrowKey.isPressed) kbStick.y -= 1;
+                if (kb.dKey.isPressed) kbStick.z += 1;
+                if (kb.aKey.isPressed) kbStick.z -= 1;
+                if (kb.wKey.isPressed) throttle += dt * 0.45f;
+                if (kb.sKey.isPressed) throttle -= dt * 0.45f;
+                punch = kb.spaceKey.isPressed;
+                cut = kb.leftCtrlKey.isPressed;
+            }
+            // keys are digital: scale them down so a tap is a nudge, Shift gives full rate for flips and rolls
+            float kbScale = (kb != null && kb.leftShiftKey.isPressed) ? 1f : Plugin.KeyboardRateScale.Value;
+            stick = Vector3.MoveTowards(stick, kbStick * kbScale, dt * 5f);
+            Vector3 s = stick;
+            float thr = Mathf.Clamp01(throttle);
+
+            if (gp != null)
+            {
+                Vector2 ls = gp.leftStick.ReadValue();
+                Vector2 rs = gp.rightStick.ReadValue();
+                s.x += rs.x; s.y += rs.y; s.z += ls.x;
+                float gpThr;
+                if (Plugin.GamepadStickThrottle.Value)
+                    gpThr = (ls.y + 1f) * 0.5f;                          // Mode 2: stick centre = 50%
+                else
+                    gpThr = Mathf.Max(gp.rightTrigger.ReadValue(), Mathf.Max(0f, ls.y));
+                bool gpActive = gpThr > 0.02f || ls.sqrMagnitude > 0.01f || rs.sqrMagnitude > 0.01f || Plugin.GamepadStickThrottle.Value;
+                if (gpActive && (kb == null || !(kb.wKey.isPressed || kb.sKey.isPressed))) { thr = gpThr; throttle = gpThr; }
+                punch |= gp.rightShoulder.isPressed;
+                cut |= gp.leftShoulder.isPressed;
+            }
+            throttle = Mathf.Clamp01(throttle);
+            if (punch) thr = 1f;
+            if (cut) thr = 0f;
+            if (battery <= 0f) thr = 0f;
+            s.x = Mathf.Clamp(s.x, -1, 1); s.y = Mathf.Clamp(s.y, -1, 1); s.z = Mathf.Clamp(s.z, -1, 1);
+            CurrentThrottle = thr;
+
+            float rate = Plugin.AcroRate.Value, expo = Plugin.AcroExpo.Value;
+            Vector3 target = new Vector3(Rate(s.y, rate, expo), Rate(s.z, rate * 0.7f, expo), -Rate(s.x, rate, expo));
+            angVel = Vector3.Lerp(angVel, target, 1f - Mathf.Exp(-22f * dt));
+            Quaternion q = rb.rotation * Quaternion.Euler(angVel * dt);
+            rb.MoveRotation(q);
+
+            Vector3 v = rb.linearVelocity;
+            Vector3 up = q * Vector3.up;
+            Vector3 a = up * (ThrustCurve(thr) * MaxAccel) + Vector3.down * G;
+            a += -v * v.magnitude * Plugin.AirDrag.Value - v * 0.06f;
+            a += FenceAccel();
+            v += a * dt;
+            rb.linearVelocity = v;
+
+            battery = Mathf.Max(0f, battery - dt * (0.25f + 1.1f * thr) / (Plugin.BatteryMinutes.Value * 60f));
+            DebugLine(new Vector3(s.x, s.y, thr));
+        }
+
+        public float CurrentThrottle { get; private set; }
+
+        Vector3 FenceAccel()
+        {
+            if (player == null) return Vector3.zero;
+            Vector3 toDrone = drone.transform.position - PilotPos;
+            float max = Plugin.MaxRange.Value;
+            if (toDrone.magnitude <= max) return Vector3.zero;
+            return -toDrone.normalized * (toDrone.magnitude - max) * 6f;
+        }
+
+        void FixedAngle()
+        {
             float dt = Time.fixedDeltaTime;
             Vector3 input = Vector3.zero;
             float yawIn = 0, tiltIn = 0;
@@ -401,55 +563,75 @@ namespace DroneFPV
             yaw += yawIn * 110f * dt;
             camTilt = Mathf.Clamp(camTilt - tiltIn * 70f * dt, -80f, 60f);
             Quaternion yawRot = Quaternion.Euler(0, yaw, 0);
-            rb.MoveRotation(yawRot);
+            // level out smoothly (matters right after leaving acro upside down)
+            rb.MoveRotation(Quaternion.Slerp(rb.rotation, yawRot, 1f - Mathf.Exp(-8f * dt)));
+            angVel = Vector3.zero;
 
             float speed = SpeedValues[speedMode] * (boost ? 1.8f : 1f);
             Vector3 target = yawRot * new Vector3(input.x * speed, input.y * speed * 0.6f, input.z * speed);
-
             if (battery <= 0f) target = Vector3.down * 3f; // dead battery: it sinks
-            if (player != null)
-            {
-                Vector3 toDrone = drone.transform.position - PilotPos;
-                float max = Plugin.MaxRange.Value;
-                if (toDrone.magnitude > max)
-                    target += -toDrone.normalized * (toDrone.magnitude - max) * 4f; // signal fence pulls it back
-            }
+            target += FenceAccel() * 0.6f;
 
             float accel = input.sqrMagnitude > 0.01f ? 4.5f : 3f;
             rb.linearVelocity = Vector3.Lerp(rb.linearVelocity, target, 1f - Mathf.Exp(-accel * dt));
-
-            if (Plugin.DebugLog.Value && Time.time > nextDebug)
-            {
-                nextDebug = Time.time + 1f;
-                Plugin.Log.LogInfo("[dbg] state=" + state + " pos=" + drone.transform.position + " vel=" + rb.linearVelocity + " in=" + input
-                    + " kin=" + rb.isKinematic + " sim=" + Physics.simulationMode + " pilot=" + PilotPos + " camParent=" + PathOf(cam != null ? cam.parent : null)
-                    + " main=" + (Camera.main != null ? Camera.main.name + " " + Camera.main.transform.position : "null"));
-            }
+            CurrentThrottle = HoverThrottle + input.y * 0.2f;
 
             if (state == DroneState.Flying)
             {
                 float load = 0.4f + 0.6f * Mathf.Clamp01(rb.linearVelocity.magnitude / 13f) + (boost ? 0.5f : 0f);
                 battery = Mathf.Max(0f, battery - dt * load / (Plugin.BatteryMinutes.Value * 60f));
             }
+            DebugLine(input);
         }
+
+        void DebugLine(Vector3 input)
+        {
+            if (!Plugin.DebugLog.Value || Time.time < nextDebug) return;
+            nextDebug = Time.time + 1f;
+            Plugin.Log.LogInfo("[dbg] state=" + state + " acro=" + acro + " pos=" + drone.transform.position + " vel=" + rb.linearVelocity
+                + " rot=" + drone.transform.eulerAngles + " in=" + input + " thr=" + CurrentThrottle.ToString("0.00") + " pilot=" + PilotPos);
+        }
+
+        void LateUpdate()
+        {
+            if (drone == null || cam == null || state != DroneState.Flying || cam.parent != camMount) return;
+            if (!chaseCam) return;
+            // chase cam follows behind the heading, level, so flips are readable from outside
+            Vector3 dp = drone.transform.position;
+            Quaternion h = Quaternion.Euler(0, Heading, 0);
+            Vector3 want = dp + h * new Vector3(0, 0.7f, -2.4f);
+            chasePos = chaseInit ? Vector3.Lerp(chasePos, want, 1f - Mathf.Exp(-8f * Time.deltaTime)) : want;
+            chaseInit = true;
+            cam.position = chasePos;
+            cam.rotation = Quaternion.LookRotation(dp + Vector3.up * 0.15f - chasePos);
+        }
+        Vector3 chasePos;
+        bool chaseInit;
 
         void AnimateDrone()
         {
             if (drone == null) return;
             Vector3 v = rb.linearVelocity;
-            Vector3 local = Quaternion.Inverse(Quaternion.Euler(0, yaw, 0)) * v;
-            Vector3 acc = (v - lastVel) / Mathf.Max(Time.deltaTime, 0.001f);
-            lastVel = v;
-            float pitch = Mathf.Clamp(local.z * 1.4f, -28, 28);
-            float roll = Mathf.Clamp(-local.x * 1.4f, -28, 28);
-            Quaternion want = Quaternion.Euler(pitch, 0, roll);
-            body.localRotation = Quaternion.Slerp(body.localRotation, want, 1f - Mathf.Exp(-6f * Time.deltaTime));
-            // The FPV camera follows part of the body tilt, like a real hard-mounted camera.
-            Vector3 be = body.localEulerAngles;
-            float bp = Mathf.DeltaAngle(0, be.x), br = Mathf.DeltaAngle(0, be.z);
-            camMount.localRotation = Quaternion.Euler(camTilt + bp * 0.35f, 0, br * 0.5f);
+            if (acro && state == DroneState.Flying)
+            {
+                // the root carries the full attitude; body and camera are hard-mounted
+                body.localRotation = Quaternion.Slerp(body.localRotation, Quaternion.identity, 1f - Mathf.Exp(-12f * Time.deltaTime));
+                camMount.localRotation = Quaternion.Euler(-Plugin.CameraUptilt.Value, 0, 0);
+            }
+            else
+            {
+                Vector3 local = Quaternion.Inverse(Quaternion.Euler(0, yaw, 0)) * v;
+                float pitch = Mathf.Clamp(local.z * 1.4f, -28, 28);
+                float roll = Mathf.Clamp(-local.x * 1.4f, -28, 28);
+                Quaternion want = Quaternion.Euler(pitch, 0, roll);
+                body.localRotation = Quaternion.Slerp(body.localRotation, want, 1f - Mathf.Exp(-6f * Time.deltaTime));
+                // The FPV camera follows part of the body tilt, like a real hard-mounted camera.
+                Vector3 be = body.localEulerAngles;
+                float bp = Mathf.DeltaAngle(0, be.x), br = Mathf.DeltaAngle(0, be.z);
+                camMount.localRotation = Quaternion.Euler(camTilt + bp * 0.35f, 0, br * 0.5f);
+            }
 
-            float spinRate = state == DroneState.Off ? 0 : (battery > 0 ? 2200f + v.magnitude * 60f : 300f);
+            float spinRate = state == DroneState.Off ? 0 : (battery > 0 ? 900f + CurrentThrottle * 3200f : 200f);
             propSpin += spinRate * Time.deltaTime;
             for (int i = 0; i < props.Count; i++)
             {

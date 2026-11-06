@@ -49,3 +49,14 @@ Added to the game folder: `winhttp.dll`, `doorstop_config.ini`, `changelog.txt`,
 5. The game DLL is locked while the game runs, so close the game before `build.sh`.
 6. Unfree keyboard keys (from the dump): WASD, arrows, Space, Shift, Ctrl, Y, U, Tab, Q, Esc, R, T, F, F1, F2, F4, F8, F9, C, M, Enter, G, 1-9.
 7. The game font has no subscript glyphs (₂ renders as a box), so the HUD writes O2 / H2O.
+
+## ACRO mode (added 2026-11-06)
+- Rate mode: `angVel` lerps to the stick rates (670°/s, expo 0.45, yaw 70%), and the rotation is integrated as `rb.rotation * Euler(angVel*dt)`.
+- Thrust is `up * (0.25t + 0.75t²) * 4.5g`, plus gravity, quadratic drag 0.035 and linear 0.06. Hover is at about 40%.
+- Keyboard: W/S is a throttle lever, arrows pitch/roll, A/D yaw. The stick is smoothed at 5/s and scaled to 45%; Shift gives 100%.
+  At 100% on keys, a 0.25 s tap gave ~140° of pitch, which is too twitchy.
+- The HUD horizon is now projected from the real camera (WorldToScreenPoint of a far point on the horizon), so it is right at any attitude.
+- The chase cam is placed in world space in LateUpdate, behind the heading and level, so flips are readable.
+- A parked drone (pilot back in body) always uses ANGLE to level out and hover.
+- Verified: hover holds at 42%, the throttle lever persists, the drone keeps momentum on its tilt, a crash leaves it on the ground,
+  and the user flew it with a gamepad (RT throttle). 0 exceptions.

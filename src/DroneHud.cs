@@ -28,6 +28,9 @@ namespace DroneFPV
         Texture2D noiseTex;
         float helpUntil;
         bool helpPinned;
+        string helpAcro, helpAngle;
+        TextMeshProUGUI tThr;
+        RectTransform thrFill;
 
         public static DroneHud Create(DroneController d)
         {
@@ -125,6 +128,12 @@ namespace DroneFPV
             speedFill = NewRect("fill", sp, new Vector2(0.5f, 0), Vector2.zero, new Vector2(6, 0));
             speedFill.pivot = new Vector2(0.5f, 0);
             speedFill.gameObject.AddComponent<Image>().color = Green;
+            var th = NewRect("thrTape", root, new Vector2(0, 0.5f), new Vector2(95, 0), new Vector2(10, 260));
+            Outline(th, new Vector2(10, 260), 2, Dim);
+            thrFill = NewRect("fill", th, new Vector2(0.5f, 0), Vector2.zero, new Vector2(6, 0));
+            thrFill.pivot = new Vector2(0.5f, 0);
+            thrFill.gameObject.AddComponent<Image>().color = Amber;
+            tThr = Txt("thr", new Vector2(0, 0.5f), new Vector2(80, -150), 22, TextAlignmentOptions.Left, Amber);
             tSpeed = Txt("speed", new Vector2(0, 0.5f), new Vector2(145, 10), 30, TextAlignmentOptions.Left, Green);
 
             var al = NewRect("altTape", root, new Vector2(1, 0.5f), new Vector2(-120, 0), new Vector2(10, 260));
@@ -153,12 +162,18 @@ namespace DroneFPV
             tWarn.rectTransform.sizeDelta = new Vector2(900, 60);
             tHelp = Txt("help", new Vector2(0.5f, 0.5f), new Vector2(0, -190), 21, TextAlignmentOptions.Top, new Color(1, 1, 1, 0.9f));
             tHelp.rectTransform.sizeDelta = new Vector2(1100, 260);
-            tHelp.text =
-                "<color=#5cff99><b>DRONE CONTROLS</b></color>\n" +
+            helpAcro =
+                "<color=#5cff99><b>ACRO — FREESTYLE</b></color>  nothing self-levels; gravity always pulls\n" +
+                "<b>W / S</b> throttle up / down (stays where you leave it)   <b>Space</b> punch 100%   <b>Ctrl</b> motor cut\n" +
+                "<b>A / D</b> yaw   <b>↑ / ↓</b> pitch (nose down / up)   <b>← / →</b> roll   <b>Shift</b> full rate (flips)   <b>PgUp / PgDn</b> uptilt\n" +
+                "<color=#5cff99><b>CONTROLLER</b></color>  RT throttle   left stick yaw   right stick pitch + roll   RB punch   LB cut\n" +
+                "<b>" + Plugin.KeyMode.Value + "</b> / D-pad ← ANGLE mode   <b>" + Plugin.KeyCamera.Value + "</b> / D-pad ↑ chase cam   <b>" + Plugin.KeyToggle.Value + "</b> / L3+R3 body   <b>" + Plugin.KeyRecall.Value + "</b> / D-pad ↓ recall   <b>" + Plugin.KeyHelp.Value + "</b> help";
+            helpAngle =
+                "<color=#5cff99><b>ANGLE — SELF-LEVELLING</b></color>\n" +
                 "<b>W A S D</b> move   <b>↑ / ↓</b> or <b>Space / Ctrl</b> up / down   <b>← / →</b> or <b>mouse</b> turn   <b>PgUp / PgDn</b> camera tilt\n" +
-                "<b>Shift</b> boost   <b>" + Plugin.KeySpeed.Value + "</b> speed mode   <b>" + Plugin.KeyCamera.Value + "</b> FPV / chase cam   <b>" + Plugin.KeyToggle.Value + "</b> back to body   <b>" + Plugin.KeyRecall.Value + "</b> recall   <b>" + Plugin.KeyHelp.Value + "</b> help\n" +
+                "<b>Shift</b> boost   <b>" + Plugin.KeySpeed.Value + "</b> / D-pad → speed mode   <b>" + Plugin.KeyMode.Value + "</b> / D-pad ← ACRO mode\n" +
                 "<color=#5cff99><b>CONTROLLER</b></color>  left stick move   RT / LT up / down   right stick turn + tilt   A boost\n" +
-                "D-pad →/← speed   D-pad ↑ camera   D-pad ↓ recall   L3 + R3 back to body";
+                "<b>" + Plugin.KeyCamera.Value + "</b> / D-pad ↑ chase cam   <b>" + Plugin.KeyToggle.Value + "</b> / L3+R3 body   <b>" + Plugin.KeyRecall.Value + "</b> / D-pad ↓ recall   <b>" + Plugin.KeyHelp.Value + "</b> help";
         }
 
         // ---------- per frame ----------
@@ -172,15 +187,38 @@ namespace DroneFPV
             float now = Time.unscaledTime;
 
             // heading + compass tape
-            float hdg = Mathf.Repeat(d.yaw, 360f);
+            float hdg = Mathf.Repeat(d.Heading, 360f);
             tHeading.text = "<b>" + ((int)hdg).ToString("000") + "°</b>";
             tCompass.text = CompassTape(hdg);
 
-            // attitude
-            Vector3 be = d.BodyTransform.localEulerAngles;
-            float pitch = Mathf.DeltaAngle(0, be.x), roll = Mathf.DeltaAngle(0, be.z);
-            horizon.localRotation = Quaternion.Euler(0, 0, roll);
-            horizon.anchoredPosition = new Vector2(0, -(pitch - d.camTilt) * 6f);
+            // attitude: put the line where the real horizon is in the camera image
+            Camera rc = d.RenderCam;
+            bool showHorizon = false;
+            if (rc != null)
+            {
+                Transform ct = rc.transform;
+                Vector3 flat = Vector3.ProjectOnPlane(ct.forward, Vector3.up);
+                if (flat.sqrMagnitude > 0.0025f)
+                {
+                    Vector3 sp = rc.WorldToScreenPoint(ct.position + flat.normalized * 1000f);
+                    if (sp.z > 0)
+                    {
+                        Vector2 size = root.rect.size;
+                        horizon.anchoredPosition = new Vector2(0, (sp.y / Screen.height - 0.5f) * size.y);
+                        float roll = -Vector3.SignedAngle(Vector3.ProjectOnPlane(Vector3.up, ct.forward), ct.up, ct.forward);
+                        horizon.localRotation = Quaternion.Euler(0, 0, roll);
+                        showHorizon = Mathf.Abs(horizon.anchoredPosition.y) < size.y * 0.6f;
+                    }
+                }
+            }
+            horizon.gameObject.SetActive(showHorizon);
+
+            // throttle
+            float thr = Mathf.Clamp01(d.CurrentThrottle);
+            thrFill.sizeDelta = new Vector2(6, 256 * thr);
+            tThr.text = "THR <b>" + (thr * 100f).ToString("0") + "%</b>";
+            thrFill.parent.gameObject.SetActive(d.acro);
+            tThr.gameObject.SetActive(d.acro);
 
             // speed and altitude
             tSpeed.text = "<b>" + kmh.ToString("0") + "</b><size=18> km/h</size>\n<size=18><color=#9fffd0>V/S " + v.y.ToString("+0.0;-0.0") + "</color></size>";
@@ -228,7 +266,9 @@ namespace DroneFPV
             Vector3 p = t.position;
             tCoords.text = "X " + p.x.ToString("0") + "  Y " + p.y.ToString("0") + "  Z " + p.z.ToString("0");
 
-            tMode.text = "MODE <b>ANGLE</b>   |   SPD <b>" + DroneController.SpeedNames[d.speedMode] + "</b>   |   CAM <b>" + (d.chaseCam ? "CHASE" : "FPV") + "</b>";
+            tMode.text = d.acro
+                ? "MODE <b><color=#ffb833>ACRO</color></b>   |   RATE <b>" + Plugin.AcroRate.Value.ToString("0") + "°/s</b>   |   CAM <b>" + (d.chaseCam ? "CHASE" : "FPV " + Plugin.CameraUptilt.Value.ToString("0") + "°") + "</b>"
+                : "MODE <b>ANGLE</b>   |   SPD <b>" + DroneController.SpeedNames[d.speedMode] + "</b>   |   CAM <b>" + (d.chaseCam ? "CHASE" : "FPV") + "</b>";
 
             // the pilot's body is still out there breathing
             string pilot = "";
@@ -257,6 +297,7 @@ namespace DroneFPV
                 warn = "OBSTACLE";
             tWarn.text = flash ? warn : "";
 
+            tHelp.text = d.acro ? helpAcro : helpAngle;
             bool showHelp = helpPinned || now < helpUntil;
             tHelp.gameObject.SetActive(showHelp);
         }
