@@ -240,7 +240,7 @@ namespace DroneFPV
                 {
                     float o2 = g.GetPlayerOxygenValue(), hp = g.GetPlayerHealthValue(), h2o = g.GetPlayerThirstValue();
                     pilotDanger = o2 < 25f || hp < 25f || h2o < 15f;
-                    pilot = "<color=#9fffd0>PILOT</color>   O₂ " + Gauge(o2) + "   HP " + Gauge(hp) + "   H₂O " + Gauge(h2o);
+                    pilot = "<color=#9fffd0>PILOT</color>   O2 " + Gauge(o2) + "   HP " + Gauge(hp) + "   H2O " + Gauge(h2o);
                 }
             }
             catch { }
