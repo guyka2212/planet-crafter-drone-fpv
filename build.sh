@@ -14,7 +14,7 @@ mkdir -p out
   echo "src\DroneFPV.cs src\DroneHud.cs"
 } > out/build.rsp
 /c/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe -noconfig @out/build.rsp || exit 1
-mkdir -p "$G/BepInEx/plugins/DroneFPV"
-cp out/DroneFPV.dll "$G/BepInEx/plugins/DroneFPV/" || { echo "install failed: close the game first (the DLL is in use)"; exit 1; }
-if [ -f assets/drone.obj ]; then cp assets/drone.obj assets/drone.mtl "$G/BepInEx/plugins/DroneFPV/"; fi
+mkdir -p "$G/BepInEx/plugins/planet-crafter-drone-fpv"
+cp out/DroneFPV.dll "$G/BepInEx/plugins/planet-crafter-drone-fpv/" || { echo "install failed: close the game first (the DLL is in use)"; exit 1; }
+if [ -f assets/drone.obj ]; then cp assets/drone.obj assets/drone.mtl "$G/BepInEx/plugins/planet-crafter-drone-fpv/"; fi
 echo installed

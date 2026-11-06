@@ -4,7 +4,7 @@
 import bpy, bmesh, math, os
 from mathutils import Vector, Matrix
 
-OUT = r"C:\Users\User\Documents\typing-test\planet-crafter-drone-fpv\assets"
+OUT = os.path.join(os.path.dirname(os.path.abspath(bpy.data.filepath or ".")), "assets")  # export target folder
 
 scene = bpy.data.scenes.get("DroneFPV") or bpy.data.scenes.new("DroneFPV")
 # start clean, but only inside our own scene

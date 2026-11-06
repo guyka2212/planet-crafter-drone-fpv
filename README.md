@@ -59,13 +59,17 @@ The battery drains as you fly, faster with boost, and recharges while the drone 
 When you press V to go back to your body, the drone keeps hovering where you left it. Press V again to take it back, or X to pack it away.
 
 ## Install
+**Easiest:** install [Planet Crafter Mod Menu](https://github.com/guyka2212/planet-crafter-mod-menu), open **Mods** in the
+main menu, paste `guyka2212/planet-crafter-drone-fpv` and press Install.
+
+**By hand:**
 1. Install BepInEx 5 (x64, Mono) in the game folder.
-2. Copy `DroneFPV.dll`, `drone.obj` and `drone.mtl` to `BepInEx/plugins/DroneFPV/`.
+2. Copy `DroneFPV.dll`, `drone.obj` and `drone.mtl` to `BepInEx/plugins/planet-crafter-drone-fpv/`.
 
 Or run `./build.sh`, which compiles the plugin and installs it into the Steam copy.
 
 ## Remove
-Delete `BepInEx/plugins/DroneFPV`. To remove BepInEx too, delete `winhttp.dll`, `doorstop_config.ini`,
+Delete `BepInEx/plugins/planet-crafter-drone-fpv`. To remove BepInEx too, delete `winhttp.dll`, `doorstop_config.ini`,
 `changelog.txt` and `BepInEx/` from the game folder.
 
 ## Rebuilding the model

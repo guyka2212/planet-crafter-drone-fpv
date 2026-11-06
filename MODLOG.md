@@ -7,7 +7,7 @@
 
 ## Recon
 - Unity 6000.0.59f2, Mono backend, URP. `Planet Crafter_Data/Managed/Assembly-CSharp.dll`, namespace `SpaceCraft`.
-- Saves/logs: `C:\Users\User\AppData\LocalLow\MijuGames\Planet Crafter` (backed up: `C:\Users\User\.universal-modder\backups\planetcrafter-demo-saves\20261106-120742.zip`).
+- Saves/logs: `%USERPROFILE%\AppData\LocalLow\MijuGames\Planet Crafter` (backed up: `%USERPROFILE%\.universal-modder\backups\planetcrafter-demo-saves\20261106-120742.zip`).
 - Input: new Input System (`PlayerInputDispatcher` with an `InputActionAsset`).
 
 ## Route
