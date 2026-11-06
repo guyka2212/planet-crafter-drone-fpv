@@ -48,3 +48,4 @@ Added to the game folder: `winhttp.dll`, `doorstop_config.ini`, `changelog.txt`,
 4. `SetChase` ran before `state = Flying` and returned early, so the camera kept the player's +1.88 m head offset. Fixed by setting state first; this fix is built but not yet tested in game.
 5. The game DLL is locked while the game runs, so close the game before `build.sh`.
 6. Unfree keyboard keys (from the dump): WASD, arrows, Space, Shift, Ctrl, Y, U, Tab, Q, Esc, R, T, F, F1, F2, F4, F8, F9, C, M, Enter, G, 1-9.
+7. The game font has no subscript glyphs (₂ renders as a box), so the HUD writes O2 / H2O.
